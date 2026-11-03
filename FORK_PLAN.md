@@ -48,7 +48,7 @@ Android забирає частину комбінацій собі ще до т
 0. **Перевірити офіційний aRDP на цільовому пристрої (зокрема Samsung).** Справа не лише у Win і Alt+Tab: Android і оболонки виробників перехоплюють і інші комбінації. Що перевірити:
    - Win і Win+літера; Alt+Tab, Alt+Shift+Tab, Alt+Esc, Ctrl+Esc
    - перемикання розкладки: Ctrl+Space, Shift+Space, Alt+Shift, Ctrl+Shift
-   - Ctrl+літера: в One UI є власні шорткати для фізичної клавіатури (повідомляли, що Ctrl+S відкриває «Повідомлення»). Чи їх можна вимкнути в налаштуваннях фізичної клавіатури, перевірити: на форумі Samsung скаржились, що не можна
+   - Ctrl+літера: в One UI є власні шорткати для фізичної клавіатури (повідомляли, що Ctrl+S відкриває «Повідомлення»). **Перевірено:** вони вимикаються в налаштуваннях фізичної клавіатури. Після цього Windows App отримує всі комбінації, **крім Win**
    - довідка шорткатів (Meta+/, Shift+?), Ctrl+Alt+Del, Alt+F4, F1–F12, Print Screen, Esc
 
    Обсяг патча від кількості комбінацій майже не залежить: сервіс бачить усі апаратні клавіші. Тому список потрібен лише для того, щоб зрозуміти, чи патч узагалі треба писати. А найточніше покаже прототип-детектор з кроку 1.
@@ -88,7 +88,9 @@ Android забирає частину комбінацій собі ще до т
 - Google Play — лише кнопка «Оцінити».
 - Посилання (Morpheusly, GitHub, email підтримки) відкриваються тільки натисканням.
 
-**Дозволи безкоштовного aRDP** (`tools:node="removeAll"`): лише `INTERNET`, `ACCESS_NETWORK_STATE`, `VIBRATE`.
+**Дозволи безкоштовного aRDP** (`tools:node="removeAll"`): лише `INTERNET`, `ACCESS_NETWORK_STATE`, `VIBRATE`. Pro (`aRDP-app`) додає `MODIFY_AUDIO_SETTINGS` і `RECORD_AUDIO` (мікрофон).
+
+**Free і Pro — один код,** різниця лише в перевірках `Utils.isFree()`. У free вимкнені: звук (`aRDP.java:132`), `.rdp`-файли (`AbstractConnectionBean.java:2234`), **майстер-пароль** (`ConnectionGridActivity.java:658`) і SSH 2FA (`SSHConnection.kt:725`). Автор прямо пише, що Pro можна зібрати з вихідного коду.
 
 ### Проблеми
 
@@ -97,8 +99,8 @@ Android забирає частину комбінацій собі ще до т
 | 1 | **FreeRDP 2.11.7.** Гілка 2.x закрита: 2.11.8 (2026-02-25) — останній реліз 2.x, і aRDP навіть до нього не оновився (наприклад, CVE-2026-25941: шкідливий сервер читає неініціалізовану пам'ять клієнта) | `remoteClientLib/jni/libs/build-deps.conf` (`freerdp_ver`) | Мінімум — оновити до **2.11.8**. Перехід на 3.x — це великий порт: змінилися API і параметри командного рядка, патчі aRDP доведеться переписати | Висока |
 | 2 | **OpenSSL 1.1.1w**, підтримка закінчилася 2023-09-11 | `build-deps.conf` (`openssl_ver`), FreeRDP `scripts/android-build.conf` | Перейти на OpenSSL 3.x. FreeRDP 2.x уже це вміє і сам завантажує legacy-провайдер (`winpr/libwinpr/utils/ssl.c`), бо NTLM у NLA потрібні MD4/RC4. На Android цей провайдер має бути доступний: наприклад, зібрати OpenSSL з `no-module`, щоб він вбудувався в libcrypto. Обов'язково перевірити вхід з NLA | Висока |
 | 3 | **Змінений сертифікат RDP виглядає як перше підключення.** `OnVerifyChangedCertificate` викликає той самий діалог, прапорець mismatch у `Bundle` не передається, `validateCert(save=false)` ніколи не показує `warning_cert_does_not_match` | `RdpCommunicator.java:524–571`, `RemoteCanvasHandler.java:239–282` | Передавати mismatch і старий відбиток, показувати явне попередження, а на mismatch робити кнопкою за замовчуванням «Ні». Плюс: патч `03` прибирає `/cert-ignore` з офіційного Android-клієнта FreeRDP, тож сертифікат узагалі перевіряється. **Не повертати cert-ignore** | Середня |
-| 4 | **Посилання `rdp://`** (intent-filter з `BROWSABLE`). Посилання з браузера чи месенджера одразу запускає підключення: браузер може спитати, чи відкрити застосунок, але сам aRDP нічого не підтверджує. Якщо host:port збігається зі збереженим підключенням, підставляється збережений пароль. Параметри посилання (`SshHost`, `SshPassword`, `IdHash`, `VpnUriScheme`…) за замовчуванням **записуються у збережене підключення** (`SaveConnection=true`) | маніфест `freeaRDP-app`, `UriIntentParser.java`, `AbstractConnectionBean.java:2256–2330`, `RemoteCanvasActivity.java:336` | Прибрати `BROWSABLE` або показувати діалог підтвердження. Не застосовувати параметри з посилання до збереженого підключення. Зробити `SaveConnection=false` за замовчуванням. **Тимчасово:** увімкнути майстер-пароль, він блокує такі посилання | Середня |
-| 5 | **Паролі відкритим текстом без майстер-пароля.** База — SQLCipher, але з порожнім ключем (`Database.password = ""`). Захищає лише пісочниця Android, бекап вимкнено (`allowBackup=false`) | `Database.java:137–255` | Шифрувати ключем з Android Keystore за замовчуванням, а майстер-пароль залишити як додатковий рівень | Середня |
+| 4 | **Посилання `rdp://`** (intent-filter з `BROWSABLE`). Посилання з браузера чи месенджера одразу запускає підключення: браузер може спитати, чи відкрити застосунок, але сам aRDP нічого не підтверджує. Якщо host:port збігається зі збереженим підключенням, підставляється збережений пароль. Параметри посилання (`SshHost`, `SshPassword`, `IdHash`, `VpnUriScheme`…) за замовчуванням **записуються у збережене підключення** (`SaveConnection=true`) | маніфест `freeaRDP-app`, `UriIntentParser.java`, `AbstractConnectionBean.java:2256–2330`, `RemoteCanvasActivity.java:336` | Прибрати `BROWSABLE` або показувати діалог підтвердження. Не застосовувати параметри з посилання до збереженого підключення. Зробити `SaveConnection=false` за замовчуванням. **Тимчасово:** увімкнути майстер-пароль, він блокує такі посилання. Лише в Pro або власній збірці: у free його немає | Середня |
+| 5 | **Паролі відкритим текстом без майстер-пароля.** База — SQLCipher, але з порожнім ключем (`Database.password = ""`). Захищає лише пісочниця Android, бекап вимкнено (`allowBackup=false`) | `Database.java:137–255` | Шифрувати ключем з Android Keystore за замовчуванням, а майстер-пароль (у free його немає) залишити як додатковий рівень | Середня |
 | 6 | **Експорт налаштувань** — XML з усіма паролями відкритим текстом | `Utils.exportSettingsToXml` → `SqliteElement.exportDbAsXmlToStream` | Показувати попередження або не включати паролі в експорт | Низька |
 | 7 | Дрібниці: `PasswordManager.encrypt` пише пароль у лог (мертвий код, ніде не викликається); `Log.d("Got data: " + data)` — URI може містити пароль (`AbstractConnectionBean.java` ≈2104); `PRAGMA key = '%s'` через `format` — апостроф у майстер-паролі зламає його зміну (`Database.java:202–210`) | — | Видалити або виправити заодно | Низька |
 | 9 | **Вибір «NLA» у налаштуваннях фактично ігнорується.** Патч `16` передає `"/sec:nla /sec:ext"` **одним** аргументом, FreeRDP отримує значення `nla /sec:ext`, пише `unknown protocol security` і лишає налаштування за замовчуванням (узгодження RDP/TLS/NLA). Тобто вимога NLA не діє, і сервер (або хтось посередині) може домовитися про слабший протокол | патч `16_freerdp_fix_security_negotiation_settings.patch`, `client/common/cmdline.c` у FreeRDP | Передавати `/sec:nla` окремим аргументом (або два окремі аргументи, якщо потрібен і ext) | Середня |
@@ -130,8 +132,8 @@ Android забирає частину комбінацій собі ще до т
 
 ### Етап A: без змін Java-коду
 
-- **`settings.gradle`:** залишити `:freeaRDP-app`, `:bVNC`, `:remoteClientLib`, `freeRDPCore`, `:common`, `:pubkeyGenerator`. Прибрати `bVNC-app`, `freebVNC-app`, `aSPICE-app`, `freeaSPICE-app`, `CustomVnc-app`, `Opaque-app`, `aRDP-app` (Pro).
-- **ABI:** лише `arm64-v8a` (сучасні планшети й телефони). `armeabi-v7a` додавати, тільки якщо знадобиться старий 32-бітний пристрій. Місця: `splits` у `freeaRDP-app/build.gradle`, `abiFilters` у `remoteClientLib/build.gradle`, `BUILD_ARCH` для FreeRDP. FreeRDP збиратиметься в ~4 рази швидше, APK стане меншим.
+- **`settings.gradle`:** залишити `:aRDP-app` (**Pro**: майстер-пароль, звук, `.rdp`-файли), `:bVNC`, `:remoteClientLib`, `freeRDPCore`, `:common`, `:pubkeyGenerator`. Прибрати `bVNC-app`, `freebVNC-app`, `aSPICE-app`, `freeaSPICE-app`, `CustomVnc-app`, `Opaque-app`, `freeaRDP-app`.
+- **ABI:** лише `arm64-v8a` (сучасні планшети й телефони). `armeabi-v7a` додавати, тільки якщо знадобиться старий 32-бітний пристрій. Місця: `splits` у `aRDP-app/build.gradle`, `abiFilters` у `remoteClientLib/build.gradle`, `BUILD_ARCH` для FreeRDP. FreeRDP збиратиметься в ~4 рази швидше, APK стане меншим.
 - **Нативна збірка:** тільки `build_freerdp`, без cerbero/GStreamer, spice-gtk, libgovirt, libsoup, librest, libusb, usbredir, gmp, nettle. Разом із ними зникають майже всі `http://`-завантаження і старі бібліотеки з `build-deps.conf`. Для aRDP вони й так не потрапляють в APK: `prepare_project.sh` видаляє їх `.so`.
 - `externalNativeBuild` у `remoteClientLib/build.gradle` уже закоментований (SPICE JNI не збирається). NDK потрібен лише для FreeRDP.
 
@@ -200,13 +202,13 @@ Android Studio не потрібна.
 2. Клонувати FreeRDP за тегом (2.11.8, див. розділ 2) і застосувати `remoteClientLib/jni/libs/*_freerdp_*.patch` через `patch -N -p1`, як у `build-deps.sh`.
    - Через `git apply` патч `14_freerdp_add_ldflags_to_freerdp_build.patch` на чистий 2.11.7 не накладається. Треба перевірити, чи пройде `patch` з fuzz, і перебазувати патчі на 2.11.8.
 3. `scripts/android-build-freerdp.sh` лише для `arm64-v8a`, з `WITH_FFMPEG=0`.
-4. `bVNC/prepare_project.sh --skip-build freeaRDP …`, а sqlcipher завантажувати **з перевіркою sha256**.
-5. `./gradlew :freeaRDP-app:assembleDebug` → завантажити APK як artifact.
+4. `bVNC/prepare_project.sh --skip-build aRDP …`, а sqlcipher завантажувати **з перевіркою sha256**.
+5. `./gradlew :aRDP-app:assembleDebug` → завантажити APK як artifact.
 6. Кешувати збірку FreeRDP за ключем «версія FreeRDP + хеш патчів», щоб нативна частина не перезбиралася щоразу.
 
 ### Інші нюанси
 
-- **Package name.** Щоб ставити форк поряд з офіційним free aRDP, потрібен інший `applicationId`. Але тип клієнта визначається **за підрядками в імені пакета** (`Utils.isRdp` шукає `rdp`, `Utils.isFree` шукає `free`), тож новий id має містити `rdp` (і `free`, якщо потрібна поведінка безкоштовної версії). Наприклад, `com.example.freeardp`. Крім того, будь-який пакет, якого немає в `Utils.standardPackageNames`, вважається «Custom»-клієнтом: `App` при старті шукає в assets `<пакет>.yaml`, і змінюється поведінка `RateOrShareFragment`. Новий id треба додати в цей список. `namespace` можна лишити як є.
+- **Package name.** Щоб ставити форк поряд з офіційним aRDP, потрібен інший `applicationId`. Але тип клієнта визначається **за підрядками в імені пакета** (`Utils.isRdp` шукає `rdp`, `Utils.isFree` шукає `free`), тож новий id має містити `rdp` і **не** містити `free`, інакше вимкнуться Pro-можливості. Наприклад, `com.example.ardp`. Крім того, будь-який пакет, якого немає в `Utils.standardPackageNames`, вважається «Custom»-клієнтом: `App` при старті шукає в assets `<пакет>.yaml`, і змінюється поведінка `RateOrShareFragment`. Новий id треба додати в цей список. `namespace` можна лишити як є.
 - **Підпис:** поки debug-ключ. Release-ключ, якщо знадобиться, класти в GitHub Secrets.
 - **Ліцензія GPL-3.0:** якщо колись публікувати APK, разом з ним має бути відкритий код. Форк і так публічний.
 
