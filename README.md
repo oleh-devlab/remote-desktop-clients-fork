@@ -1,3 +1,6 @@
+> **Fork note:** plans for this fork — keyboard passthrough (Alt+Tab / Win),
+> security fixes, trimming everything non-RDP, CI builds — are in **[FORK_PLAN.md](FORK_PLAN.md)**.
+
 # Intro
 
 This is the source code for bVNC, aRDP, aSPICE and Opaque, four remote desktop
